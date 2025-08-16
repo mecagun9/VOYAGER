@@ -1,0 +1,876 @@
+import React, { useState, useEffect } from 'react';
+import { Satellite, CheckCircle, Terminal, Book } from 'lucide-react';
+
+const VoyagerMemoryEditor = () => {
+  const [gameState, setGameState] = useState('intro');
+  const [memoryData, setMemoryData] = useState([]);
+  const [selectedAddress, setSelectedAddress] = useState(null);
+  const [inputValue, setInputValue] = useState('');
+  const [manualPage, setManualPage] = useState(0);
+  const [manualCollapsed, setManualCollapsed] = useState(false);
+  const [systemLogs, setSystemLogs] = useState([]);
+  const [score, setScore] = useState(0);
+  const [missionTimer, setMissionTimer] = useState(600);
+  const [communicationWindow, setCommunicationWindow] = useState(true);
+  const [signalDelay, setSignalDelay] = useState(0);
+  const [selectedSystem, setSelectedSystem] = useState(null);
+  const [communicationTimer, setCommunicationTimer] = useState(30);
+  const [dataTransmitted, setDataTransmitted] = useState(0);
+  const [dataRate, setDataRate] = useState(0);
+  const [unlockedFeatures, setUnlockedFeatures] = useState([]);
+  const [achievements, setAchievements] = useState([]);
+  const [showRewardPopup, setShowRewardPopup] = useState(null);
+  const [autoRepairCooldown, setAutoRepairCooldown] = useState(0);
+
+  const memoryMap = {
+    '0x1000': { name: 'ATTITUDE_CONTROL', type: 'navigation' },
+    '0x1004': { name: 'THRUSTER_STATUS', type: 'navigation' },
+    '0x1008': { name: 'GYRO_X_AXIS', type: 'navigation' },
+    '0x100C': { name: 'GYRO_Y_AXIS', type: 'navigation' },
+    '0x2000': { name: 'RADIO_TRANSMITTER', type: 'communication' },
+    '0x2004': { name: 'ANTENNA_POSITION', type: 'communication' },
+    '0x2008': { name: 'SIGNAL_STRENGTH', type: 'communication' },
+    '0x3000': { name: 'POWER_LEVEL', type: 'power' },
+    '0x3004': { name: 'BATTERY_STATUS', type: 'power' },
+    '0x3008': { name: 'RTG_OUTPUT', type: 'power' },
+    '0x4000': { name: 'CAMERA_MODE', type: 'science' },
+    '0x4004': { name: 'SENSOR_DATA', type: 'science' },
+    '0x4008': { name: 'SPECTRUM_ANALYZER', type: 'science' }
+  };
+
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const generateValue = () => Math.floor(Math.random() * 65536).toString(16).toUpperCase().padStart(4, '0');
+  const generateCorruptedValue = () => ['DEAD', 'BEEF', 'FFFF', '0000'][Math.floor(Math.random() * 4)];
+
+  const addLog = (message, type = 'info') => {
+    const timestamp = new Date().toLocaleTimeString();
+    setSystemLogs(prev => [...prev, { message, timestamp, type }].slice(-20));
+  };
+
+  const getTypeColor = (type) => {
+    const colors = { 
+      navigation: 'text-blue-400', 
+      communication: 'text-purple-400', 
+      power: 'text-yellow-400', 
+      science: 'text-green-400' 
+    };
+    return colors[type] || 'text-gray-400';
+  };
+
+  const checkAchievements = (newDataTotal) => {
+    const milestones = [
+      { threshold: 50, name: "First Contact", reward: "시스템 진단 도구", feature: "diagnostic" },
+      { threshold: 100, name: "Data Pioneer", reward: "자동 수리 기능", feature: "autoRepair" },
+      { threshold: 150, name: "Signal Master", reward: "통신 부스터", feature: "commBooster" },
+      { threshold: 200, name: "Deep Space Explorer", reward: "예측 시스템", feature: "prediction" },
+      { threshold: 250, name: "Voyager Hero", reward: "시간 확장", feature: "timeExtension" },
+      { threshold: 300, name: "Mission Complete", reward: "전체 시스템 마스터", feature: "master" }
+    ];
+
+    milestones.forEach(milestone => {
+      if (newDataTotal >= milestone.threshold && 
+          !achievements.includes(milestone.name)) {
+        
+        setAchievements(prev => {
+          if (prev.includes(milestone.name)) return prev;
+          return [...prev, milestone.name];
+        });
+        
+        setUnlockedFeatures(prev => {
+          if (prev.includes(milestone.feature)) return prev;
+          return [...prev, milestone.feature];
+        });
+        
+        setShowRewardPopup(milestone);
+        addLog(`🎉 업적 달성: ${milestone.name}! ${milestone.reward} 언락!`, 'success');
+        
+        if (milestone.feature === 'timeExtension') {
+          setMissionTimer(prev => prev + 120);
+          addLog('⏰ 미션 시간 2분 연장!', 'success');
+        }
+        
+        setTimeout(() => setShowRewardPopup(null), 3000);
+      }
+    });
+  };
+
+  const useAutoRepair = () => {
+    if (!unlockedFeatures.includes('autoRepair') || autoRepairCooldown > 0) return;
+    
+    setAutoRepairCooldown(45);
+    
+    setMemoryData(prev => {
+      const corrupted = prev.filter(m => m.isCorrupted);
+      if (corrupted.length > 0) {
+        const toRepair = corrupted[0];
+        addLog(`🤖 자동 수리: ${toRepair.info.name} 복구 완료`, 'success');
+        return prev.map(m => 
+          m.address === toRepair.address 
+            ? { ...m, isCorrupted: false, value: m.originalValue }
+            : m
+        );
+      }
+      return prev;
+    });
+  };
+
+  const useDiagnostic = () => {
+    if (!unlockedFeatures.includes('diagnostic')) return;
+    
+    const brokenSystems = memoryData.filter(m => m.isCorrupted);
+    if (brokenSystems.length > 0) {
+      brokenSystems.forEach(system => {
+        addLog(`🔍 진단: ${system.info.name} (${system.address}) - 원래값: ${system.originalValue}`, 'info');
+      });
+    } else {
+      addLog('🔍 진단: 모든 시스템 정상', 'info');
+    }
+  };
+
+  const startGame = () => {
+    setGameState('playing');
+    setDataTransmitted(0);
+    setDataRate(0);
+    setUnlockedFeatures([]);
+    setAchievements([]);
+    setShowRewardPopup(null);
+    setAutoRepairCooldown(0);
+    setSystemLogs([]);
+    setSelectedSystem(null);
+    setSelectedAddress(null);
+    setInputValue('');
+    setMissionTimer(600);
+    setCommunicationWindow(true);
+    setCommunicationTimer(30);
+    setSignalDelay(0);
+
+    const initialMemory = Object.keys(memoryMap).map(address => {
+      const originalValue = generateValue();
+      return {
+        address,
+        value: originalValue,
+        originalValue: originalValue,
+        isCorrupted: false,
+        info: memoryMap[address]
+      };
+    });
+
+    setMemoryData(initialMemory);
+    addLog('미션 시작: 300MB 데이터를 지구로 전송하세요');
+    addLog('모든 시스템이 정상 상태입니다. 데이터 전송을 시작합니다.');
+  };
+
+  const resetGame = () => {
+    setGameState('intro');
+    setDataTransmitted(0);
+    setDataRate(0);
+    setSystemLogs([]);
+    setSelectedSystem(null);
+    setSelectedAddress(null);
+    setInputValue('');
+    setMemoryData([]);
+  };
+
+  const handleSystemClick = (systemType) => {
+    setSelectedSystem(systemType);
+    const corruptedMemory = memoryData.find(m => m.info.type === systemType && m.isCorrupted);
+    if (corruptedMemory) setSelectedAddress(corruptedMemory.address);
+  };
+
+  const handleMemoryEdit = () => {
+    if (!selectedAddress || !inputValue || !communicationWindow || signalDelay > 0) return;
+
+    const cleanValue = inputValue.replace(/[^0-9A-F]/g, '');
+    if (cleanValue.length !== 4) {
+      addLog('오류: 16진법 4자리 값을 입력하세요', 'error');
+      return;
+    }
+
+    setSignalDelay(3);
+    addLog('명령 전송 중...');
+
+    setTimeout(() => {
+      setSignalDelay(0);
+      
+      const memoryIndex = memoryData.findIndex(m => m.address === selectedAddress);
+      const newMemoryData = [...memoryData];
+      
+      const isValidRepair = !['DEAD', 'BEEF', 'FFFF', '0000'].includes(cleanValue);
+      
+      newMemoryData[memoryIndex].value = cleanValue;
+      if (isValidRepair && newMemoryData[memoryIndex].isCorrupted) {
+        newMemoryData[memoryIndex].isCorrupted = false;
+        addLog(`${selectedAddress} 메모리 수리 완료`, 'success');
+        setScore(prev => prev + 100);
+        
+        const originalValue = newMemoryData[memoryIndex].originalValue;
+        if (cleanValue === originalValue) {
+          addLog(`완벽한 수리! 원래 값과 일치합니다`, 'success');
+          setScore(prev => prev + 50);
+        }
+      } else if (!isValidRepair) {
+        addLog(`${selectedAddress} 수리 실패: 정상 값을 입력하세요`, 'error');
+      }
+
+      setMemoryData(newMemoryData);
+      setInputValue('');
+    }, 3000);
+  };
+
+  useEffect(() => {
+    if (gameState !== 'playing') return;
+
+    const missionInterval = setInterval(() => {
+      setMissionTimer(prev => {
+        if (prev <= 1) {
+          setGameState('complete');
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    const commTimerInterval = setInterval(() => {
+      setCommunicationTimer(prev => Math.max(0, prev - 1));
+      setAutoRepairCooldown(prev => Math.max(0, prev - 1));
+    }, 1000);
+
+    const commInterval = setInterval(() => {
+      setCommunicationWindow(prev => {
+        const newState = !prev;
+        setCommunicationTimer(newState ? 30 : 15);
+        addLog(newState ? '통신 창구 열림' : '통신 창구 닫힘');
+        return newState;
+      });
+    }, communicationWindow ? 30000 : 15000);
+
+    const dataInterval = setInterval(() => {
+      if (communicationWindow && memoryData.length > 0) {
+        let rate = 1;
+
+        const commBroken = memoryData.some(m => m.info.type === 'communication' && m.isCorrupted);
+        const navBroken = memoryData.some(m => m.info.type === 'navigation' && m.isCorrupted);
+        const powerBroken = memoryData.some(m => m.info.type === 'power' && m.isCorrupted);
+        const scienceBroken = memoryData.some(m => m.info.type === 'science' && m.isCorrupted);
+
+        if (commBroken) {
+          rate = 0;
+        } else {
+          if (navBroken) rate *= 0.5;
+          if (powerBroken) rate *= 0.7;
+          if (scienceBroken) rate *= 0.7;
+        }
+
+        setDataRate(rate);
+        if (rate > 0) {
+          setDataTransmitted(prev => {
+            const actualRate = unlockedFeatures.includes('commBooster') ? rate * 1.5 : rate;
+            const newTotal = prev + actualRate;
+            
+            if (newTotal >= 300 && prev < 300) {
+              addLog('🎉 목표 달성! 300MB 전송 완료!', 'success');
+            }
+            
+            if (Math.floor(newTotal) > Math.floor(prev)) {
+              checkAchievements(Math.floor(newTotal));
+            }
+            
+            return newTotal;
+          });
+        }
+      } else {
+        setDataRate(0);
+      }
+    }, 1000);
+
+    const malfunctionInterval = setInterval(() => {
+      setMemoryData(currentMemoryData => {
+        const workingMemories = currentMemoryData.filter(m => !m.isCorrupted);
+        if (workingMemories.length > 0) {
+          const randomMemory = workingMemories[Math.floor(Math.random() * workingMemories.length)];
+          
+          setTimeout(() => {
+            addLog(`고장 발생: ${randomMemory.info.name} (${randomMemory.address})`, 'error');
+          }, 0);
+          
+          return currentMemoryData.map(m => 
+            m.address === randomMemory.address 
+              ? { ...m, isCorrupted: true, value: generateCorruptedValue() }
+              : m
+          );
+        }
+        return currentMemoryData;
+      });
+    }, 30000);
+
+    return () => {
+      clearInterval(missionInterval);
+      clearInterval(commTimerInterval);
+      clearInterval(commInterval);
+      clearInterval(dataInterval);
+      clearInterval(malfunctionInterval);
+    };
+  }, [gameState, communicationWindow, memoryData.length, unlockedFeatures]);
+
+  if (gameState === 'intro') {
+    return (
+      <div className="min-h-screen bg-black text-green-400 font-mono p-4">
+        <div className="max-w-4xl mx-auto">
+          <div className="text-center mb-8">
+            <div className="flex justify-center items-center mb-4">
+              <Terminal className="w-12 h-12 mr-4" />
+              <h1 className="text-4xl font-bold">VOYAGER - 4 MISSION CONTROL</h1>
+            </div>
+            <p className="text-xl">JOIN THE NASA - Deep Space Network Access</p>
+          </div>
+
+          <div className="border border-green-400 p-6 mb-6">
+            <h2 className="text-xl mb-4">== SYSTEM STATUS ==</h2>
+            <div className="space-y-2">
+              <p>SPACECRAFT: VOYAGER 1</p>
+              <p>DISTANCE: 23.5 BILLION KM FROM EARTH</p>
+              <p>STATUS: SYSTEM MALFUNCTION DETECTED</p>
+              <p>MISSION: TRANSMIT CRITICAL DATA TO EARTH</p>
+            </div>
+          </div>
+
+          <div className="border border-green-400 p-6 mb-6">
+            <h2 className="text-xl mb-4">== MISSION OBJECTIVES ==</h2>
+            <div className="space-y-2 text-sm">
+              <p>• <strong>목표: 300MB의 데이터를 지구로 전송하세요</strong></p>
+              <p>• 정상 상태에서 1MB/초로 전송됩니다</p>
+              <p>• 시스템 고장시 전송 속도가 감소합니다</p>
+              <p>• 손상된 메모리를 수리하여 시스템을 복구하세요</p>
+              <p>• 통신 창구가 열려있을 때만 전송 가능합니다</p>
+              <p>• 30초마다 새로운 고장이 발생할 수 있습니다</p>
+            </div>
+          </div>
+
+          <div className="text-center">
+            <button
+              onClick={startGame}
+              className="border border-green-400 bg-green-400 bg-opacity-20 px-8 py-4 text-xl hover:bg-opacity-30 transition-colors"
+            >
+              JOIN THE NASA
+            </button>
+            <div className="text-center mt-4 text-sm text-gray-400">
+              <p>⚠ 미션 제한 시간: 10분</p>
+              <p>⚠ 목표: 300MB 데이터 전송</p>
+              <p>⚠ 30초마다 새로운 고장이 발생합니다</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (gameState === 'complete') {
+    return (
+      <div className="min-h-screen bg-black text-green-400 font-mono p-4">
+        <div className="max-w-2xl mx-auto text-center">
+          <CheckCircle className="w-16 h-16 mx-auto mb-6" />
+          <h1 className="text-4xl mb-4">MISSION COMPLETED</h1>
+          <div className="border border-green-400 p-6 mb-6">
+            <p className="text-xl mb-4">TIME UP!</p>
+            <p>TRANSMITTED: {Math.floor(dataTransmitted)} MB</p>
+            <p>{dataTransmitted >= 300 ? 'TARGET ACHIEVED!' : 'KEEP TRYING NEXT TIME!'}</p>
+            <p>VOYAGER 1 CONTINUES ITS JOURNEY</p>
+            <div className="mt-4 text-sm">
+              <p>최종 점수: {score}</p>
+              <p>달성 업적: {achievements.length}/6</p>
+            </div>
+          </div>
+          <button
+            onClick={resetGame}
+            className="border border-green-400 bg-green-400 bg-opacity-20 px-6 py-3 hover:bg-opacity-30"
+          >
+            RESTART
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-black text-green-400 font-mono p-4">
+      <div className="max-w-7xl mx-auto">
+        <div className="flex justify-between items-center mb-4 border-b border-green-400 pb-2">
+          <div className="flex items-center">
+            <Satellite className="w-6 h-6 mr-2" />
+            <span>VOYAGER-4 MISSION CONTROL</span>
+          </div>
+        </div>
+
+        <div className={`bg-amber-900/20 border-2 border-amber-600 rounded-lg mb-4 ${manualCollapsed ? 'p-2' : 'p-4'}`}>
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center">
+              <Book className="w-5 h-5 text-amber-400 mr-2" />
+              <h3 className="font-bold text-amber-400">TECHNICAL MANUAL</h3>
+            </div>
+            <button onClick={() => setManualCollapsed(!manualCollapsed)} className="text-amber-400">
+              {manualCollapsed ? '📖' : '📕'}
+            </button>
+          </div>
+
+          {!manualCollapsed && (
+            <>
+              <div className="flex mb-3 border-b border-amber-600">
+                {['MISSION', 'MEMORY MAP', 'REPAIR GUIDE'].map((tab, index) => (
+                  <button
+                    key={index}
+                    onClick={() => setManualPage(index)}
+                    className={`px-2 py-1 text-xs ${manualPage === index ? 'bg-amber-600 text-black' : 'bg-amber-900/30 text-amber-300'}`}
+                  >
+                    {tab}
+                  </button>
+                ))}
+              </div>
+
+              <div style={{height: '150px', overflowY: 'auto'}}>
+                {manualPage === 0 && (
+                  <div className="text-amber-100 text-sm">
+                    <h4 className="text-amber-400 font-bold mb-2">미션 목표</h4>
+                    <p className="text-xs mb-2">300MB의 과학 데이터를 지구로 전송하세요</p>
+                    <div className="text-xs text-amber-300 space-y-1">
+                      <p>• 정상 상태: 1MB/초로 전송</p>
+                      <p>• 통신 고장: 전송 불가 (0MB/s)</p>
+                      <p>• 자세 제어 고장: 50% 속도 감소</p>
+                      <p>• 전력/과학 고장: 30% 속도 감소</p>
+                      <p>• 통신 창구: 30초 열림 → 15초 닫힘 반복</p>
+                      <p>• 30초마다 새로운 고장 발생</p>
+                    </div>
+                  </div>
+                )}
+
+                {manualPage === 1 && (
+                  <div className="text-amber-100 space-y-1 text-xs">
+                    {Object.entries(memoryMap).map(([addr, info]) => (
+                      <div key={addr} className="border border-amber-700 p-1 rounded">
+                        <div className="flex justify-between">
+                          <span className="font-mono">{addr}</span>
+                          <span className={getTypeColor(info.type)}>{info.type.toUpperCase()}</span>
+                        </div>
+                        <div className="text-amber-300">{info.name}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {manualPage === 2 && (
+                  <div className="text-amber-100 text-xs">
+                    <h4 className="text-amber-400 font-bold mb-2 text-sm">수리 가이드</h4>
+                    
+                    <div className="border border-amber-600 bg-amber-900/20 p-2 rounded mb-2">
+                      <h5 className="text-amber-300 font-bold mb-1 text-xs">고장 표시 값들</h5>
+                      <div className="space-y-1 text-xs">
+                        <div className="flex justify-between"><span className="font-mono text-red-400">DEAD</span><span>심각한 고장</span></div>
+                        <div className="flex justify-between"><span className="font-mono text-red-400">BEEF</span><span>메모리 오류</span></div>
+                        <div className="flex justify-between"><span className="font-mono text-red-400">FFFF</span><span>오버플로우</span></div>
+                        <div className="flex justify-between"><span className="font-mono text-red-400">0000</span><span>시스템 다운</span></div>
+                      </div>
+                    </div>
+
+                    <div className="border border-amber-600 bg-amber-900/20 p-2 rounded">
+                      <h5 className="text-amber-300 font-bold mb-1 text-xs">정상 값 예시</h5>
+                      <div className="grid grid-cols-4 gap-1 text-xs">
+                        {['A5C3', '1B7F', '8000', '4A2B', '7E91', '2F48', 'C6D5', '9B83'].map(item => (
+                          <div key={item} className="bg-green-800/30 p-1 rounded text-center font-mono text-green-300">
+                            {item}
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-amber-300 mt-2 text-xs">💡 이런 값들을 입력하면 수리 성공!</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="border border-green-400 p-4 mb-4">
+          <div className="flex justify-between items-center mb-3">
+            <span className="text-lg">MISSION TIMER</span>
+            <span className="text-yellow-400 text-xl font-bold">{formatTime(missionTimer)}</span>
+          </div>
+          <div className="w-full h-4 bg-gray-800 border border-gray-600 rounded mb-4">
+            <div 
+              className="h-full bg-green-400 rounded transition-all duration-1000"
+              style={{width: `${((600 - missionTimer) / 600) * 100}%`}}
+            />
+          </div>
+
+          <div className="flex justify-between items-center mb-3">
+            <span className="text-lg">DATA TRANSMISSION</span>
+            <div className="text-right">
+              <div className="text-cyan-400 text-xl font-bold">{Math.floor(dataTransmitted)} / 300 MB</div>
+              <div className="text-xs text-cyan-300">
+                Rate: {dataRate.toFixed(1)} MB/s
+                {unlockedFeatures.includes('commBooster') && <span className="text-yellow-300"> (+50% BOOST!)</span>}
+              </div>
+            </div>
+          </div>
+          <div className="relative w-full h-6 bg-gray-800 border border-cyan-600 rounded overflow-hidden">
+            <div 
+              className="h-full bg-cyan-400 rounded transition-all duration-300"
+              style={{width: `${Math.min(100, (dataTransmitted / 300) * 100)}%`}}
+            />
+            <div className="absolute inset-0 flex items-center justify-center text-black font-bold text-sm">
+              {Math.floor((dataTransmitted / 300) * 100)}%
+            </div>
+          </div>
+        </div>
+
+        <div className="grid lg:grid-cols-2 gap-6">
+          {unlockedFeatures.length > 0 && (
+            <div className="lg:col-span-2 bg-purple-900/30 border border-purple-400 rounded-lg p-4 mb-4">
+              <div className="flex justify-between items-center mb-3">
+                <h3 className="text-lg font-semibold text-purple-300">🚀 언락된 기능</h3>
+                
+                {showRewardPopup && (
+                  <div className="bg-yellow-400/20 border border-yellow-400 rounded px-3 py-1 text-yellow-300 text-xs animate-pulse">
+                    🏆 {showRewardPopup.name} 달성!
+                  </div>
+                )}
+              </div>
+              
+              <div className="flex gap-2 flex-wrap">
+                {unlockedFeatures.includes('diagnostic') && (
+                  <button
+                    onClick={useDiagnostic}
+                    className="border border-blue-400 bg-blue-400/20 px-3 py-2 text-blue-300 hover:bg-blue-400/30 rounded text-sm"
+                  >
+                    🔍 시스템 진단
+                  </button>
+                )}
+                {unlockedFeatures.includes('autoRepair') && (
+                  <div className="relative">
+                    <button
+                      onClick={useAutoRepair}
+                      disabled={autoRepairCooldown > 0}
+                      className={`border px-3 py-2 rounded text-sm transition-all ${
+                        autoRepairCooldown > 0 
+                          ? 'border-gray-600 bg-gray-600/20 text-gray-500 cursor-not-allowed'
+                          : 'border-green-400 bg-green-400/20 text-green-300 hover:bg-green-400/30'
+                      }`}
+                    >
+                      🤖 자동 수리
+                    </button>
+                    {autoRepairCooldown > 0 && (
+                      <div className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full w-6 h-6 flex items-center justify-center font-bold">
+                        {autoRepairCooldown}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {unlockedFeatures.includes('prediction') && (
+                  <div className="border border-orange-400 bg-orange-400/20 px-3 py-2 text-orange-300 rounded text-sm">
+                    🔮 예측: {30 - ((Date.now() % 30000) / 1000 | 0)}초 후 고장
+                  </div>
+                )}
+                <div className="text-xs text-purple-300 self-center ml-2">
+                  달성 업적: {achievements.length}/6
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="bg-gray-900/50 border border-gray-600 rounded-lg p-6">
+            <h2 className="text-xl font-semibold mb-4 flex items-center">
+              <Satellite className="w-5 h-5 mr-2" />
+              VOYAGER-1 시스템 상태
+            </h2>
+            
+            <div className="flex gap-2 mb-4">
+              <div className="border border-blue-400 px-2 py-1 bg-blue-400 bg-opacity-10 rounded text-xs">
+                <span className="text-blue-400">SIGNAL:</span> {signalDelay > 0 ? `TX ${signalDelay}s` : 'READY'}
+              </div>
+              <div className="border border-yellow-400 px-2 py-1 bg-yellow-400 bg-opacity-10 rounded text-xs">
+                <span className="text-yellow-400">COMM:</span> {communicationWindow ? 'ON' : 'OFF'} ({communicationTimer}s)
+              </div>
+              <div className="border border-cyan-400 px-2 py-1 bg-cyan-400 bg-opacity-10 rounded text-xs">
+                <span className="text-cyan-400">DATA:</span> {dataRate.toFixed(1)} MB/s
+              </div>
+            </div>
+            
+            <div className="flex justify-center mb-4">
+              <svg width="700" height="500" viewBox="0 0 700 500" className="border border-gray-600 rounded bg-black">
+                {/* 별들 */}
+                <circle cx="80" cy="50" r="2" fill="#ffffff" opacity="0.6"/>
+                <circle cx="240" cy="40" r="1" fill="#ffffff" opacity="0.4"/>
+                <circle cx="560" cy="60" r="2" fill="#ffffff" opacity="0.5"/>
+                <circle cx="620" cy="120" r="1.6" fill="#ffffff" opacity="0.7"/>
+                
+                {/* 고이득 안테나 (통신 시스템) */}
+                <g 
+                  onClick={() => handleSystemClick('communication')}
+                  className="cursor-pointer"
+                  style={{filter: selectedSystem === 'communication' ? 'drop-shadow(0 0 16px #22c55e)' : 'none'}}
+                >
+                  <circle 
+                    cx="350" 
+                    cy="120" 
+                    r="60" 
+                    fill="none" 
+                    stroke={memoryData.some(m => m.info.type === 'communication' && m.isCorrupted) ? '#ef4444' : '#22c55e'} 
+                    strokeWidth="4"
+                    className={memoryData.some(m => m.info.type === 'communication' && m.isCorrupted) ? 'animate-pulse' : ''}
+                  />
+                  <circle 
+                    cx="350" 
+                    cy="120" 
+                    r="40" 
+                    fill="none" 
+                    stroke={memoryData.some(m => m.info.type === 'communication' && m.isCorrupted) ? '#ef4444' : '#22c55e'} 
+                    strokeWidth="2"
+                    opacity="0.5"
+                  />
+                  <text x="350" y="130" textAnchor="middle" fill="#ffffff" fontSize="14">COMM</text>
+                </g>
+                
+                {/* 메인 바디 */}
+                <rect 
+                  x="300" 
+                  y="190" 
+                  width="100" 
+                  height="140" 
+                  fill="#2d3748" 
+                  stroke="#4a5568" 
+                  strokeWidth="4"
+                  rx="8"
+                />
+                
+                {/* 각 시스템별 클릭 가능한 영역들 */}
+                {[
+                  { type: 'navigation', y: 196, label: 'ATTITUDE' },
+                  { type: 'science', y: 230, label: 'SCIENCE' },
+                  { type: 'power', y: 264, label: 'POWER' }
+                ].map(({ type, y, label }) => (
+                  <g 
+                    key={type}
+                    onClick={() => handleSystemClick(type)}
+                    className="cursor-pointer"
+                    style={{filter: selectedSystem === type ? 'drop-shadow(0 0 16px #22c55e)' : 'none'}}
+                  >
+                    <rect 
+                      x="306" 
+                      y={y} 
+                      width="88" 
+                      height="24" 
+                      fill={memoryData.some(m => m.info.type === type && m.isCorrupted) ? '#ef4444' : '#22c55e'}
+                      className={memoryData.some(m => m.info.type === type && m.isCorrupted) ? 'animate-pulse' : ''}
+                      opacity="0.8"
+                    />
+                    <text x="350" y={y + 16} textAnchor="middle" fill="#000000" fontSize="10" fontWeight="bold">{label}</text>
+                  </g>
+                ))}
+                
+                {/* 연결선 */}
+                <line x1="350" y1="180" x2="350" y2="190" stroke="#4a5568" strokeWidth="4"/>
+                
+                {/* RTG */}
+                <g 
+                  onClick={() => handleSystemClick('power')}
+                  className="cursor-pointer"
+                  style={{filter: selectedSystem === 'power' ? 'drop-shadow(0 0 16px #22c55e)' : 'none'}}
+                >
+                  <line x1="350" y1="330" x2="350" y2="360" stroke="#4a5568" strokeWidth="4"/>
+                  <rect 
+                    x="336" 
+                    y="360" 
+                    width="28" 
+                    height="50" 
+                    fill={memoryData.some(m => m.info.type === 'power' && m.isCorrupted) ? '#ef4444' : '#fbbf24'}
+                    stroke="#4a5568" 
+                    strokeWidth="2"
+                    className={memoryData.some(m => m.info.type === 'power' && m.isCorrupted) ? 'animate-pulse' : ''}
+                  />
+                  <text x="350" y="390" textAnchor="middle" fill="#000000" fontSize="8">RTG</text>
+                </g>
+                
+                {/* 과학 장비 붐들 */}
+                <g 
+                  onClick={() => handleSystemClick('science')}
+                  className="cursor-pointer"
+                  style={{filter: selectedSystem === 'science' ? 'drop-shadow(0 0 16px #22c55e)' : 'none'}}
+                >
+                  <line x1="300" y1="220" x2="220" y2="220" stroke="#4a5568" strokeWidth="2"/>
+                  <circle 
+                    cx="210" 
+                    cy="220" 
+                    r="12" 
+                    fill={memoryData.some(m => m.info.type === 'science' && m.isCorrupted) ? '#ef4444' : '#22c55e'}
+                    stroke="#4a5568" 
+                    strokeWidth="2"
+                    className={memoryData.some(m => m.info.type === 'science' && m.isCorrupted) ? 'animate-pulse' : ''}
+                  />
+                  <text x="210" y="226" textAnchor="middle" fill="#ffffff" fontSize="6">SCI</text>
+                  
+                  <line x1="400" y1="220" x2="480" y2="220" stroke="#4a5568" strokeWidth="2"/>
+                  <circle 
+                    cx="490" 
+                    cy="220" 
+                    r="8" 
+                    fill={memoryData.some(m => m.info.type === 'science' && m.isCorrupted) ? '#ef4444' : '#22c55e'}
+                    stroke="#4a5568" 
+                    strokeWidth="2"
+                    className={memoryData.some(m => m.info.type === 'science' && m.isCorrupted) ? 'animate-pulse' : ''}
+                  />
+                </g>
+                
+                {/* 지구로 향하는 신호 */}
+                {!memoryData.some(m => m.info.type === 'communication' && m.isCorrupted) && communicationWindow && (
+                  <g>
+                    <defs>
+                      <path id="signalPath" d="M 350 90 Q 180 50 40 30"/>
+                    </defs>
+                    <path d="M 350 90 Q 180 50 40 30" stroke="none" fill="none"/>
+                    {Array.from({length: 3}, (_, i) => (
+                      <circle key={i} r="3" fill="#22c55e" opacity="0.8">
+                        <animateMotion dur="2s" repeatCount="indefinite" begin={`${i * 0.4}s`}>
+                          <mpath href="#signalPath"/>
+                        </animateMotion>
+                      </circle>
+                    ))}
+                    <text x="50" y="24" fill="#22c55e" fontSize="12">🌍 Earth</text>
+                  </g>
+                )}
+                
+                {/* 시스템 상태 */}
+                <g>
+                  <text x="20" y="470" fill="#ffffff" fontSize="16" fontWeight="bold">시스템 상태:</text>
+                  <text x="170" y="470" fill={
+                    memoryData.filter(m => m.isCorrupted).length === 0 ? '#22c55e' : 
+                    memoryData.filter(m => m.isCorrupted).length > 2 ? '#ef4444' : '#fbbf24'
+                  } fontSize="16" fontWeight="bold">
+                    {memoryData.filter(m => m.isCorrupted).length === 0 ? 'OPERATIONAL' : 
+                     memoryData.filter(m => m.isCorrupted).length > 2 ? 'CRITICAL' : 'DEGRADED'}
+                  </text>
+                </g>
+              </svg>
+            </div>
+            
+            <div className="text-sm text-gray-300">
+              <strong>VOYAGER-1 시스템 상태</strong>: 고장난 시스템을 수리하여 데이터 전송 효율을 개선하세요
+            </div>
+          </div>
+
+          <div className="bg-gray-900/50 border border-gray-600 rounded-lg p-6">
+            <h2 className="text-xl font-semibold mb-4">
+              메모리 뱅크 {selectedSystem ? `- ${selectedSystem.toUpperCase()}` : ''}
+            </h2>
+            
+            {selectedSystem ? (
+              <div className="space-y-4">
+                <div className="space-y-1 text-sm">
+                  <div className="grid grid-cols-3 gap-4 font-bold border-b border-green-400 pb-1">
+                    <span>ADDRESS</span>
+                    <span>VALUE</span>
+                    <span>STATUS</span>
+                  </div>
+                  {memoryData.filter(m => m.info.type === selectedSystem).map((memory) => (
+                    <div
+                      key={memory.address}
+                      onClick={() => setSelectedAddress(memory.address)}
+                      className={`grid grid-cols-3 gap-4 p-2 cursor-pointer rounded ${
+                        selectedAddress === memory.address ? 'bg-green-400/20' : ''
+                      } ${memory.isCorrupted ? 'text-red-400 animate-pulse' : 'hover:bg-green-400/10'}`}
+                    >
+                      <span className="font-mono">{memory.address}</span>
+                      <span className="font-mono font-bold">{memory.value}</span>
+                      <span>{memory.isCorrupted ? '🔧 REPAIR' : 'OK'}</span>
+                    </div>
+                  ))}
+                </div>
+                
+                <div className="border border-green-400 p-4 rounded">
+                  <h3 className="text-lg mb-3">== MEMORY EDITOR ==</h3>
+                  
+                  <div className="space-y-3">
+                    <div className="text-sm">
+                      <p>ADDRESS: {selectedAddress || 'SELECT MEMORY ADDRESS'}</p>
+                      <p>SYSTEM: {selectedAddress ? memoryData.find(m => m.address === selectedAddress)?.info.name : 'NO SELECTION'}</p>
+                      <p>CURRENT: {selectedAddress ? memoryData.find(m => m.address === selectedAddress)?.value : '----'}</p>
+                      {selectedAddress && memoryData.find(m => m.address === selectedAddress)?.originalValue && (
+                        <p className="text-cyan-300">
+                          <strong>ORIGINAL:</strong> {memoryData.find(m => m.address === selectedAddress)?.originalValue}
+                          <span className="text-xs text-cyan-500 ml-2">(정상 값)</span>
+                        </p>
+                      )}
+                      {selectedAddress && memoryData.find(m => m.address === selectedAddress)?.isCorrupted && (
+                        <p className="text-amber-300">
+                          STATUS: CORRUPTED - 원래 값을 입력하여 수리하세요
+                          <span className="text-xs text-amber-500 ml-2">
+                            (DEAD, BEEF, FFFF, 0000 등은 고장 상태)
+                          </span>
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex space-x-2">
+                      <input
+                        type="text"
+                        value={inputValue}
+                        onChange={(e) => setInputValue(e.target.value.toUpperCase())}
+                        placeholder={selectedAddress && memoryData.find(m => m.address === selectedAddress)?.originalValue 
+                          ? `원래값: ${memoryData.find(m => m.address === selectedAddress)?.originalValue}` 
+                          : "16진법 4자리 (예: A5C3)"}
+                        className="bg-black border border-green-400 p-2 text-green-400 font-mono flex-1"
+                        maxLength={4}
+                        disabled={!communicationWindow || signalDelay > 0 || !selectedAddress}
+                      />
+                      <button
+                        onClick={handleMemoryEdit}
+                        disabled={!communicationWindow || signalDelay > 0 || !selectedAddress || !inputValue}
+                        className={`border px-4 py-2 transition-colors ${
+                          communicationWindow && signalDelay === 0 && selectedAddress && inputValue
+                            ? 'border-green-400 hover:bg-green-400/20 text-green-400' 
+                            : 'border-gray-600 text-gray-600 cursor-not-allowed'
+                        }`}
+                      >
+                        {signalDelay > 0 ? 'WAIT' : 'WRITE'}
+                      </button>
+                    </div>
+                    {!communicationWindow && (
+                      <div className="text-red-400 text-xs">⚠ 통신 불가 - 지구 자전으로 인한 신호 차단</div>
+                    )}
+                    {!selectedAddress && (
+                      <div className="text-yellow-400 text-xs">⚠ 메모리 주소를 선택하세요</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center text-gray-400 py-8">
+                <p>시스템을 선택하여 메모리를 확인하세요</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-6">
+          <div className="bg-gray-900/50 border border-gray-600 rounded-lg p-6">
+            <h3 className="text-lg font-semibold mb-4">시스템 로그</h3>
+            <div className="space-y-2 h-32 overflow-y-auto">
+              {systemLogs.map((msg, index) => (
+                <div key={index} className="text-sm bg-gray-800/50 p-2 rounded">
+                  <div className="text-green-400 text-xs">[{msg.timestamp}]</div>
+                  <div className={
+                    msg.type === 'error' ? 'text-red-400' :
+                    msg.type === 'success' ? 'text-green-400' : 'text-gray-300'
+                  }>{msg.message}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default VoyagerMemoryEditor;
