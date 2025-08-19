@@ -586,7 +586,7 @@ const VoyagerMemoryEditor = () => {
               VOYAGER-1 시스템 상태
             </h2>
             
-            <div className="flex gap-2 mb-4">
+            <div className="flex flex-col sm:flex-row gap-2 mb-4">
               <div className="border border-blue-400 px-2 py-1 bg-blue-400 bg-opacity-10 rounded text-xs">
                 <span className="text-blue-400">SIGNAL:</span> {signalDelay > 0 ? `TX ${signalDelay}s` : 'READY'}
               </div>
@@ -599,7 +599,7 @@ const VoyagerMemoryEditor = () => {
             </div>
             
             <div className="flex justify-center mb-4">
-              <svg width="700" height="500" viewBox="0 0 700 500" className="border border-gray-600 rounded bg-black">
+              <svg viewBox="0 0 700 500" className="w-full max-w-[700px] h-auto border border-gray-600 rounded bg-black">
                 {/* 별들 */}
                 <circle cx="80" cy="50" r="2" fill="#ffffff" opacity="0.6"/>
                 <circle cx="240" cy="40" r="1" fill="#ffffff" opacity="0.4"/>
